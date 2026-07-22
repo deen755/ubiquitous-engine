@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AtmoSync EN - Hazard Vector Engine</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1E1E1E;
+            --primary: #00B0FF;
+            --accent: #00E676;
+            --text: #FFFFFF;
+            --text-dim: #B0BEC5;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 16px;
+            overflow-x: hidden;
+        }
+
+        header {
+            width: 100%;
+            max-width: 420px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        header h1 {
+            font-size: 1.1rem;
+            color: var(--primary);
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .badge {
+            display: inline-block;
+            width: 100%;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 0.85rem;
+            text-align: center;
+            background-color: #212121;
+            color: #FFCC00;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        }
+
+        .compass-container {
+            position: relative;
+            width: 220px;
+            height: 220px;
+            margin: 16px 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            width: 220px;
+            height: 220px;
+        }
+
+        .telemetry {
+            font-size: 0.95rem;
+            font-weight: bold;
+            color: var(--accent);
+            text-align: center;
+            margin-bottom: 12px;
+            min-height: 24px;
+        }
+
+        .sat-box {
+            width: 100%;
+            max-width: 420px;
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 0.78rem;
+            color: var(--text-dim);
+            line-height: 1.4;
+            margin-bottom: 16px;
+            border-left: 4px solid var(--primary);
+        }
+
+        .controls {
+            width: 100%;
+            max-width: 420px;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        button {
+            border: none;
+            padding: 10px;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 0.8rem;
+            color: #FFF;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        button:active {
+            opacity: 0.7;
+        }
+
+        .btn-fire { background-color: #D84315; }
+        .btn-heat { background-color: #E65100; }
+        .btn-flood { background-color: #D32F2F; }
+        .btn-storm { background-color: #1565C0; }
+        .btn-quake { background-color: #6A1B9A; grid-column: span 2; }
+        .btn-safe { background-color: #2E7D32; grid-column: span 2; }
+        .btn-mute { background-color: #333333; grid-column: span 2; margin-top: 4px; }
+
+        footer {
+            margin-top: auto;
+            font-family: monospace;
+            font-size: 0.7rem;
+            color: #757575;
+            text-align: center;
+            padding-top: 12px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>🛰️ ATMOSYNC EN - HAZARD VECTOR ENGINE</h1>
+        <div id="zone-badge" class="badge">[ INITIALIZING SATELLITE FEED... ]</div>
+    </header>
+
+    <div class="compass-container">
+        <canvas id="compassCanvas" width="220" height="220"></canvas>
+    </div>
+
+    <div id="telemetry" class="telemetry">[ LOCKING VECTOR ]</div>
+
+    <div id="sat-box" class="sat-box">
+        Satellite Feed: Querying NASA MODIS/VIIRS & Seismo-Radar...
+    </div>
+
+    <div class="controls">
+        <button class="btn-fire" onclick="setHazard('FIRE')">🔥 Fire / Wildfire</button>
+        <button class="btn-heat" onclick="setHazard('HEATWAVE')">☀️ Heatwave</button>
+        <button class="btn-flood" onclick="setHazard('FLOOD')">🌊 Flash Flood</button>
+        <button class="btn-storm" onclick="setHazard('STORM')">⛈️ Rain / Storm</button>
+        <button class="btn-quake" onclick="setHazard('EARTHQUAKE')">🫨 Earthquake Alert</button>
+        <button class="btn-safe" onclick="setHazard('SAFE')">🟢 Clear / Safe Zone</button>
+        <button id="mute-btn" class="btn-mute" onclick="toggleAudio()">🔊 AUDIO ACTIVE (TAP TO MUTE)</button>
+    </div>
+
+    <footer>[OFFLINE MESH PAYLOAD: 14.8 KB | WEB VECTOR ENGINE]</footer>
+
+    <script>
+        // Audio Context Setup for Mobile Browsers
+        let audioCtx = null;
+        let sirenInterval = null;
+        let soundMuted = false;
+
+        let currentHazard = "FIRE";
+        let targetAngle = 180;
+        let distance = 350;
+
+        const badge = document.getElementById('zone-badge');
+        const telemetry = document.getElementById('telemetry');
+        const satBox = document.getElementById('sat-box');
+        const muteBtn = document.getElementById('mute-btn');
+        const canvas = document.getElementById('compassCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Web Audio Synthesizer for Sirens
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playBeep(freq, duration) {
+            if (soundMuted || !audioCtx) return;
+            try {
+                let osc = audioCtx.createOscillator();
+                let gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + (duration / 1000));
+            } catch (e) { console.log(e); }
+        }
+
+        function stopSiren() {
+            if (sirenInterval) clearInterval(sirenInterval);
+            sirenInterval = null;
+        }
+
+        function startSiren(type) {
+            initAudio();
+            stopSiren();
+            if (soundMuted) return;
+
+            if (type === 'FIRE') {
+                let toggle = false;
+                sirenInterval = setInterval(() => {
+                    playBeep(toggle ? 1800 : 2400, 120);
+                    toggle = !toggle;
+                }, 160);
+            } else if (type === 'HEATWAVE') {
+                let toggle = false;
+                sirenInterval = setInterval(() => {
+                    playBeep(toggle ? 1400 : 1800, 150);
+                    toggle = !toggle;
+                }, 220);
+            } else if (type === 'FLOOD') {
+                let toggle = false;
+                sirenInterval = setInterval(() => {
+                    playBeep(toggle ? 853 : 960, 300);
+                    toggle = !toggle;
+                }, 350);
+            } else if (type === 'STORM') {
+                let toggle = false;
+                sirenInterval = setInterval(() => {
+                    playBeep(toggle ? 600 : 900, 200);
+                    toggle = !toggle;
+                }, 280);
+            } else if (type === 'EARTHQUAKE') {
+                let toggle = false;
+                sirenInterval = setInterval(() => {
+                    playBeep(toggle ? 2000 : 1200, 100);
+                    toggle = !toggle;
+                }, 120);
+            } else if (type === 'SAFE') {
+                playBeep(523, 200);
+                setTimeout(() => playBeep(659, 200), 220);
+                setTimeout(() => playBeep(784, 300), 440);
+            }
+        }
+
+        function toggleAudio() {
+            soundMuted = !soundMuted;
+            if (soundMuted) {
+                stopSiren();
+                muteBtn.innerText = "🔇 AUDIO MUTED (TAP TO UNMUTE)";
+                muteBtn.style.backgroundColor = "#555555";
+            } else {
+                muteBtn.innerText = "🔊 AUDIO ACTIVE (TAP TO MUTE)";
+                muteBtn.style.backgroundColor = "#333333";
+                startSiren(currentHazard);
+            }
+        }
+
+        // Hazard State Logic
+        function setHazard(type) {
+            currentHazard = type;
+            initAudio();
+
+            if (type === 'FIRE') {
+                badge.innerText = "🔥 CRITICAL: FIRE / WILDFIRE HAZARD DETECTED";
+                badge.style.backgroundColor = "#D84315";
+                badge.style.color = "#FFFFFF";
+                satBox.innerText = "MODIS Thermal Scan: Active Hotspot Detected\nWind Speed: 32 km/h | AQI: Extreme Smoke\n⚠️ EVACUATE CROSS-WIND / AWAY FROM FLAMES.";
+                targetAngle = 180;
+                distance = 350;
+                telemetry.innerText = `EVACUATE SOUTH (${targetAngle}°) AWAY FROM SMOKE | ${distance}m`;
+                telemetry.style.color = "#FF7043";
+            } else if (type === 'HEATWAVE') {
+                badge.innerText = "🟠 ZONE: AMBER HEATWAVE VECTOR";
+                badge.style.backgroundColor = "#E65100";
+                badge.style.color = "#FFFFFF";
+                satBox.innerText = "MODIS Thermal Sat: Ambient 45°C | Heat Index 52°C\nAction: Move to nearest Cooling Center / Underground Corridor.";
+                targetAngle = 225;
+                distance = 210;
+                telemetry.innerText = `COOLING SHELTER SW (${targetAngle}°) | ${distance}m`;
+                telemetry.style.color = "#FFB74D";
+            } else if (type === 'FLOOD') {
+                badge.innerText = "🔴 ZONE: FLASH FLOOD HAZARD DETECTED";
+                badge.style.backgroundColor = "#C62828";
+                badge.style.color = "#FFD54F";
+                satBox.innerText = "Radar Hydro-Scan: Soil Saturation 94%\nFlash Flood Risk High. Move immediately to high ground.";
+                targetAngle = 45;
+                distance = 180;
+                telemetry.innerText = `MOVE TO HIGH GROUND NE (${targetAngle}°) | ${distance}m`;
+                telemetry.style.color = "#00E676";
+            } else if (type === 'STORM') {
+                badge.innerText = "🟦 ZONE: HEAVY RAIN & SEVERE STORM WARNING";
+                badge.style.backgroundColor = "#1565C0";
+                badge.style.color = "#FFFFFF";
+                satBox.innerText = "Doppler Radar: Precipitation 85 mm/h | Gusts: 70 km/h\nAction: Seek indoor concrete shelter. Avoid open roads.";
+                targetAngle = 315;
+                distance = 140;
+                telemetry.innerText = `INDOOR REFUGE NW (${targetAngle}°) | ${distance}m`;
+                telemetry.style.color = "#40C4FF";
+            } else if (type === 'EARTHQUAKE') {
+                badge.innerText = "🟪 CRITICAL: SEISMIC P-WAVE DETECTED";
+                badge.style.backgroundColor = "#6A1B9A";
+                badge.style.color = "#FFFFFF";
+                satBox.innerText = "Seismic Sensor: Immediate P-Wave Arrival\nMagnitude Est: 6.2 M | Depth: 10 km\n⚠️ ACTION: DROP, COVER, HOLD ON! DO NOT RUN OUTSIDE.";
+                targetAngle = 0;
+                distance = 0;
+                telemetry.innerText = "🛑 TAKE SHELTER IMMEDIATELY under sturdy desk/table!";
+                telemetry.style.color = "#FF5252";
+            } else if (type === 'SAFE') {
+                badge.innerText = "🟢 ZONE: GREEN SAFE VECTOR (NO THREATS)";
+                badge.style.backgroundColor = "#2E7D32";
+                badge.style.color = "#FFFFFF";
+                satBox.innerText = "Multi-Sensor Feed: All environmental, seismic, and radar thresholds normal.";
+                targetAngle = 0;
+                distance = 0;
+                telemetry.innerText = "STATIONARY SAFE | 0m Threat Distance";
+                telemetry.style.color = "#00E676";
+            }
+
+            startSiren(type);
+            drawCompass();
+        }
+
+        // Canvas Visual Rendering
+        function drawCompass() {
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const radius = 80;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (currentHazard === 'EARTHQUAKE') {
+                ctx.strokeStyle = "#FF5252";
+                ctx.lineWidth = 4;
+                ctx.fillStyle = "#1E1E1E";
+                ctx.fillRect(cx - 60, cy - 40, 120, 80);
+                ctx.strokeRect(cx - 60, cy - 40, 120, 80);
+
+                ctx.fillStyle = "#FF5252";
+                ctx.font = "bold 14px sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText("TAKE", cx, cy - 8);
+                ctx.fillText("SHELTER", cx, cy + 14);
+                return;
+            }
+
+            let mainColor = "#00E676";
+            if (currentHazard === 'FIRE') mainColor = "#FF7043";
+            else if (currentHazard === 'HEATWAVE') mainColor = "#FFB74D";
+            else if (currentHazard === 'FLOOD') mainColor = "#C62828";
+            else if (currentHazard === 'STORM') mainColor = "#1565C0";
+
+            // Circle ring
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+            ctx.strokeStyle = mainColor;
+            ctx.lineWidth = 4;
+            ctx.stroke();
+
+            // Directional Arrow
+            const rad = (targetAngle * Math.PI) / 180;
+            const arrowLen = radius - 12;
+
+            const tipX = cx + arrowLen * Math.sin(rad);
+            const tipY = cy - arrowLen * Math.cos(rad);
+
+            const leftX = cx + 18 * Math.sin(rad - (140 * Math.PI / 180));
+            const leftY = cy - 18 * Math.cos(rad - (140 * Math.PI / 180));
+
+            const rightX = cx + 18 * Math.sin(rad + (140 * Math.PI / 180));
+            const rightY = cy - 18 * Math.cos(rad + (140 * Math.PI / 180));
+
+            ctx.beginPath();
+            ctx.moveTo(tipX, tipY);
+            ctx.lineTo(leftX, leftY);
+            ctx.lineTo(cx, cy);
+            ctx.fillStyle = mainColor;
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(tipX, tipY);
+            ctx.lineTo(rightX, rightY);
+            ctx.lineTo(cx, cy);
+            ctx.fillStyle = "#00B0FF";
+            ctx.fill();
+        }
+
+        // Initialize default view
+        setHazard('FIRE');
+    </script>
+</body>
+</html>
